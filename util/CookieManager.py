@@ -114,3 +114,10 @@ class CookieManager:
     def get_cookies_str_force(self):
         self._login_and_save_cookies()
         return self.get_cookies_str()
+    
+    def clear_cookies(self):
+        self.db.delete("cookie")
+        self.db.delete("password")
+        self.db.delete("phone")
+        self._login_and_save_cookies()
+        return

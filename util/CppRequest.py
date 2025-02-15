@@ -32,7 +32,9 @@ class CppRequest:
 
     def post(self, url, data=None):
         self.headers["cookie"] = self.cookieManager.get_cookies_str()
-        response = self.session.post(url, data=data, headers=self.headers)
+        headers = self.headers.copy()
+        headers["content-type"] = "application/json"
+        response = self.session.post(url, data=data, headers=headers)
         response.raise_for_status()
         return response
 

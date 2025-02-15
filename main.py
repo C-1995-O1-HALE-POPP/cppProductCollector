@@ -3,37 +3,19 @@ from util.KVDatabase import KVDatabase
 from util.CppRequest import CppRequest
 from util.TimeService import TimeService
 from util.CookieManager import CookieManager
+
 from cppEventCrawer import cppEventCrawer
+from cppDataHandler import cppDataHandler
+from cppCircleCrawer import cppCircleCrawer
+from cppUserCrawer import cppUserCrawer
 
 from loguru import logger
 import pandas as pd
-import re
 import os
 import sys
 import argparse
-from bs4 import BeautifulSoup
 import json
-def circleIDtoInfo(main_request: CppRequest, circleID=2231):
-    # https://www.allcpp.cn/c/5096.do
-    #使用soup遍历页面
-    return
 
-def circleIDtoProduct(main_request: CppRequest, circleID=2231):
-    #api: https://www.allcpp.cn/allcpp/circle/allBenZi.do?circle_id=5096&sub_event_id=0&page=1&pageSize=600
-    return
-
-def circleIDtoUser(main_request: CppRequest, circleID=2231):
-    # https://www.allcpp.cn/c/5096.do
-    #使用soup遍历页面
-    return
-
-def userIDtoProduct(main_request: CppRequest, userID=2231):
-    #api: https://www.allcpp.cn/allcpp/doujinshi/getAuthorDoujinshiList.do?pageindex=1&pagesize=2000&userid=1560556&searchstring=&canupdate=-1&havecreater=1
-    return
-
-def userIDtoInfo(main_request: CppRequest, userID=2231):
-    # api: https://www.allcpp.cn/allcpp/loginregister/getUser/1560556.do?
-    return
 
 def productIDtoInfo(main_request: CppRequest, productID=2231):
     # https://www.allcpp.cn/d/952820.do#tabType=0
@@ -51,9 +33,16 @@ def main():
     parser.add_argument("--output", type=str, 
                         default="", 
                         help="output file path")
-    parser.add_argument("--reload-cookie", type=bool, 
+    parser.add_argument("--refresh-cookie", type=bool, 
                         default=False, 
-                        help="login again to get new cookie")
+                        help="refresh cookie")
+    parser.add_argument("--relogin", type=bool,
+                        default=False,
+                        help="relogin")
+    parser.add_argument("--force", type=bool,
+                        default=False,
+                        help="force to replace the output file")
+                        
 
     args = parser.parse_args()
 
@@ -66,17 +55,28 @@ def main():
     
     cookie_path = configDB.get("cookie_path")
 
-    if args.reload_cookie:
-        main_request = CppRequest(cookies_config_path=cookie_path)
+    main_request = CppRequest(cookies_config_path=cookie_path)
+
+    if args.refresh_cookie:
         global_cookieManager = main_request.cookieManager
         global_cookieManager.refreshToken()
+    
+    if args.relogin:
+        global_cookieManager = main_request.cookieManager
+        global_cookieManager.clear_cookies()
 
-    eventCrawer = cppEventCrawer()
-    eventCrawer.loadEventFromURL(args.page)
-    eventCrawer.downloadProducts(args.output)
+    # eventCrawer = cppEventCrawer(URL=args.page)
+    # eventProductDataHandler = cppDataHandler(csvPath="eventProduct.csv", force=args.force)
+    # eventProductDataHandler.writeCSV(eventCrawer.getInfos())
 
+    # circleCrawer = cppCircleCrawer(URL=args.page)
+    # print(circleCrawer.getInfo())
+    # for product in circleCrawer.getSchedule():
+    #     print(product)
 
-
+    userCrawer = cppUserCrawer(URL=args.page)
+    for i in userCrawer.getSchedule():
+        print(i)
 
 if __name__ == "__main__":
     main()
