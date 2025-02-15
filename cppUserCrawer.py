@@ -34,7 +34,6 @@ class cppUserCrawer:
         # get APIs, fortunately, we can get all information with them
         self.UID = UID
         self.infoApi = f"https://www.allcpp.cn/allcpp/loginregister/getUser/{self.UID}.do?"
-
         response = self.main_request.get(self.infoApi)
         if response.status_code != 200:
             logger.error("infoApi request failed" + str(self.UID))

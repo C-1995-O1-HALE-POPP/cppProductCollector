@@ -8,6 +8,7 @@ from cppEventCrawer import cppEventCrawer
 from cppDataHandler import cppDataHandler
 from cppCircleCrawer import cppCircleCrawer
 from cppUserCrawer import cppUserCrawer
+from cppProductCrawer import cppProductCrawer
 
 from loguru import logger
 import pandas as pd
@@ -16,15 +17,7 @@ import sys
 import argparse
 import json
 
-
-def productIDtoInfo(main_request: CppRequest, productID=2231):
-    # https://www.allcpp.cn/d/952820.do#tabType=0
-    #使用soup遍历页面
-    return
-
-
 def main():
-    
     # 解析命令行参数
     parser = argparse.ArgumentParser()
     parser.add_argument("--page", type=str, 
@@ -64,6 +57,18 @@ def main():
     if args.relogin:
         global_cookieManager = main_request.cookieManager
         global_cookieManager.clear_cookies()
+    
+    # get selfUID
+    request = main_request.get("https://www.allcpp.cn/allcpp/circle/getCircleMannage.do")
+    if request.status_code != 200:
+        logger.error("UserApi request failed")
+        exit(1)
+    data = json.loads(request.text)
+    if not data["isSuccess"]:
+        logger.error("bad response")
+        exit(1)
+    KVDatabase(config_path).insert("UID", data["result"]["joinCircleList"][0]["userId"])
+    logger.info("Successfully login, your UID is " + str(data["result"]["joinCircleList"][0]["userId"]))
 
     # eventCrawer = cppEventCrawer(URL=args.page)
     # eventProductDataHandler = cppDataHandler(csvPath="eventProduct.csv", force=args.force)
@@ -74,9 +79,16 @@ def main():
     # for product in circleCrawer.getSchedule():
     #     print(product)
 
-    userCrawer = cppUserCrawer(URL=args.page)
-    for i in userCrawer.getSchedule():
+    # userCrawer = cppUserCrawer(URL=args.page)
+    # for i in userCrawer.getProducts(3):
+    #     print(i)
+
+    productCrawer = cppProductCrawer(URL=args.page)
+    print(productCrawer.getInfo())
+    for i in productCrawer.getSchedule():
         print(i)
+
+        # TODO: 明确任务
 
 if __name__ == "__main__":
     main()

@@ -6,7 +6,6 @@ import sys
 import re
 import json
 from datetime import datetime
-from bs4 import BeautifulSoup
 
 class cppCircleCrawer:
     def __init__(self, circleID = -1, URL = ""):
@@ -32,12 +31,20 @@ class cppCircleCrawer:
                 logger.error("Bad URL")
                 exit(1)
         # get circle page
+        myUID = KVDatabase(config_path).get("UID")
         self.circleID = circleID
         self.scheduledEventsApi = f"https://www.allcpp.cn/allcpp/circle/mainEvent.do?circle_id={self.circleID}&startDate=2010-02-01"
         self.circlePageUrl = f"https://www.allcpp.cn/c/{self.circleID}.do"
-        # load page
+        self.circleInfoApi = f"https://www.allcpp.cn/api/circle/getcircledetail.do?circleid={self.circleID}&userid={myUID}"
         response = self.main_request.get(self.circlePageUrl)
-        self.soup = BeautifulSoup(response.text, 'html.parser')
+        if response.status_code != 200:
+            logger.error("circlePage request failed" + str(circleID))
+            return
+        data = json.loads(response.text)
+        if not data["isSuccess"]:
+            logger.error("bad response" + str(circleID))
+            return
+        self.data = data["result"]
         logger.info("Successfully load circleID" + str(circleID))
 
         return
@@ -47,27 +54,6 @@ class cppCircleCrawer:
         # return circleID
         return self.circleID
     
-    def getMemberIDs(self):
-        # find all members' IDs in the page
-        members = self.soup.find_all('li')
-        return [li['id'].replace('sm', '') for li in members if 'id' in li.attrs and li['id'].startswith('sm')]
-    
-    def getPresidentID(self):
-        # find president's ID in the page
-        president = self.soup.find("li", class_="first")  # president's `li` has `class="first"`
-        president_id = president["id"] if president else None
-        # remove prefix 'sm' from president_id
-        return president_id.replace('sm', '')
-
-    def getDesc(self):
-        # find circle description in the page
-        description_tag = self.soup.find('ul', id='m-info')
-        return description_tag.text.strip() if description_tag else ""
-    
-    def getName(self):
-        # find circle name in the page
-        name = self.soup.find('h1', class_='name')
-        return name.text.strip() if name else ""
     
     def getSchedule(self, limitation = -1):
         # get scheduled events with api, limitation is the maximum number of events to return
@@ -132,10 +118,4 @@ class cppCircleCrawer:
     
     def getInfo(self):
         # return circle information
-        return {
-            "circleID": self.getCircleID(),
-            "circleName": self.getName(),
-            "circleDesc": self.getDesc(),
-            "presidentID": self.getPresidentID(),
-            "memberIDs": self.getMemberIDs()
-        }
+        return self.data
