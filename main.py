@@ -10,22 +10,23 @@ from cppCircleCrawer import cppCircleCrawer
 from cppUserCrawer import cppUserCrawer
 from cppProductCrawer import cppProductCrawer
 
+import concurrent.futures
 from loguru import logger
 import pandas as pd
 import os
 import sys
 import argparse
 import json
+import time
+import re
+from tqdm import tqdm 
 
 def main():
-    # 解析命令行参数
+    # get args
     parser = argparse.ArgumentParser()
     parser.add_argument("--page", type=str, 
                         default="https://www.allcpp.cn/allcpp/event/event.do?event=2231", 
                         help="page url")
-    parser.add_argument("--output", type=str, 
-                        default="", 
-                        help="output file path")
     parser.add_argument("--refresh-cookie", type=bool, 
                         default=False, 
                         help="refresh cookie")
@@ -35,11 +36,22 @@ def main():
     parser.add_argument("--force", type=bool,
                         default=False,
                         help="force to replace the output file")
-                        
+    parser.add_argument("--maxRetry", type=int,
+                        default=10,
+                        help="max retry attempts for a connection failure. <= 0 for no retry")
+    parser.add_argument("--maxRatePerMinute", type=int,
+                        default=100,
+                        help="max request attempts within 60s. <= 0 for infinity attempts")
+    parser.add_argument("--retryInterval", type=int,
+                        default=30,
+                        help="max retry interval. <= 0 for no waiting")
+    parser.add_argument("--maxWaitTime", type=int,
+                        default=10,
+                        help="max time to wait for a request. <= 0 for no timeout")
 
     args = parser.parse_args()
 
-    # 读取 cookie 配置
+    # get cookie config
     config_path = os.path.join(os.path.dirname(os.path.realpath(sys.executable)), "config.json")
     configDB = KVDatabase(config_path)
 
@@ -53,11 +65,16 @@ def main():
     if args.refresh_cookie:
         global_cookieManager = main_request.cookieManager
         global_cookieManager.refreshToken()
-    
+
     if args.relogin:
         global_cookieManager = main_request.cookieManager
         global_cookieManager.clear_cookies()
-    
+
+    configDB.insert("maxRetry", args.maxRetry)
+    configDB.insert("maxRatePerMinute", args.maxRatePerMinute)
+    configDB.insert("retryInterval", args.retryInterval)
+    configDB.insert("maxWaitTime", args.maxWaitTime)
+
     # get selfUID
     request = main_request.get("https://www.allcpp.cn/allcpp/circle/getCircleMannage.do")
     if request.status_code != 200:
@@ -70,25 +87,73 @@ def main():
     KVDatabase(config_path).insert("UID", data["result"]["joinCircleList"][0]["userId"])
     logger.info("Successfully login, your UID is " + str(data["result"]["joinCircleList"][0]["userId"]))
 
-    # eventCrawer = cppEventCrawer(URL=args.page)
-    # eventProductDataHandler = cppDataHandler(csvPath="eventProduct.csv", force=args.force)
-    # eventProductDataHandler.writeCSV(eventCrawer.getInfos())
+    # get event products and event circles
+    eventCrawer = cppEventCrawer(URL = args.page)
+    eventId = eventCrawer.getEventID()
+    productEventDataHandler = cppDataHandler(csvPath=f"{eventId}_Event_products.csv")
+    productEventDataHandler.writeCSV(eventCrawer.getProducts())
+    circleEventDataHandler = cppDataHandler(csvPath=f"{eventId}_Event_circles.csv")
+    circleEventDataHandler.writeCSV(eventCrawer.getCircles())
 
-    # circleCrawer = cppCircleCrawer(URL=args.page)
-    # print(circleCrawer.getInfo())
-    # for product in circleCrawer.getSchedule():
-    #     print(product)
+    dataProducts = pd.read_csv(f"{eventId}_Event_products.csv")
+    dataCircle = pd.read_csv(f"{eventId}_Event_circles.csv")
 
-    # userCrawer = cppUserCrawer(URL=args.page)
-    # for i in userCrawer.getProducts(3):
-    #     print(i)
+    # get circles and products entries from the Event
+    allcircles = dataCircle["id"].unique()
+    allproducts = dataProducts["doujinshiId"].unique()
 
-    productCrawer = cppProductCrawer(URL=args.page)
-    print(productCrawer.getInfo())
-    for i in productCrawer.getSchedule():
-        print(i)
+    # dataHandlers
+    circleDataHandler = cppDataHandler(csvPath=f"{eventId}_Circles_Info.csv")
+    circleProductsDataHandler = cppDataHandler(csvPath=f"{eventId}_Circle_ALL_Products.csv")
+    circleScheduleDataHandler = cppDataHandler(csvPath=f"{eventId}_Circle_Schedule.csv")
 
-        # TODO: 明确任务
+    productDataHandler = cppDataHandler(csvPath=f"{eventId}_Products_Info.csv")
+    productScheduleDataHandler = cppDataHandler(csvPath=f"{eventId}_Product_Schedule.csv")
+
+    userDataHandler = cppDataHandler(csvPath=f"{eventId}_User_Info.csv")
+    userScheduleDataHandler = cppDataHandler(csvPath=f"{eventId}_user_Schedule.csv")
+    userProduceDataHandler = cppDataHandler(csvPath=f"{eventId}_user_ALL_Products.csv")
+
+    # get all UID from circles
+    user_ids = []
+    for entry in tqdm(dataCircle["circleMemberList"]):
+        user_ids.extend(re.findall(r"'userId': (\d+)", entry))
+    user_ids = list(set(map(int, user_ids)))  # unique
+
+
+    def process_circle(circle):
+        circleCrawer = cppCircleCrawer(circle)
+        circleDataHandler.writeCSV(circleCrawer.getInfo())
+        circleProductsDataHandler.writeCSV(circleCrawer.getProducts())
+        circleScheduleDataHandler.writeCSV(circleCrawer.getSchedule())
+
+
+    def process_product(product):
+        productCrawer = cppProductCrawer(product)
+        productDataHandler.writeCSV(productCrawer.getInfo())
+        productScheduleDataHandler.writeCSV(productCrawer.getSchedule())
+
+
+    def process_user(uid):
+        userCrawer = cppUserCrawer(UID=uid)
+        userDataHandler.writeCSV(userCrawer.getInfo())
+        userScheduleDataHandler.writeCSV(userCrawer.getSchedule())
+        userProduceDataHandler.writeCSV(userCrawer.getProducts())
+
+
+    # thread pool for execution
+    def execute_parallel_tasks(task_func, task_list, max_workers=10):
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(task_func, task): task for task in task_list}
+            for future in tqdm(concurrent.futures.as_completed(futures), total=len(futures)):
+                future.result() 
+
+
+    # go multitasking!
+    execute_parallel_tasks(process_circle, allcircles, max_workers=10)
+    execute_parallel_tasks(process_product, allproducts, max_workers=10)
+    execute_parallel_tasks(process_user, user_ids, max_workers=10)
+
 
 if __name__ == "__main__":
     main()

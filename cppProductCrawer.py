@@ -5,6 +5,7 @@ import os
 import sys
 import re
 import json
+
 class cppProductCrawer:
     def __init__(self, PID = -1, URL = ""):
         # read cookie config
@@ -40,6 +41,8 @@ class cppProductCrawer:
             logger.error("bad response" + str(self.PID))
             return
         self.info = data["result"]
+
+        logger.info("Successfully load PID" + str(PID))
         return
 
     def extractPID(self, url):
@@ -52,6 +55,7 @@ class cppProductCrawer:
     
     def getSchedule(self):
         # get user's schedule
+        num = 0
         for isnew in [0, 1]:
             scheduleApi = "".join(["https://www.allcpp.cn/allcpp/djs/joinedEvent.do?doujinshiid=",
                                     str(self.PID),
@@ -69,4 +73,6 @@ class cppProductCrawer:
             logger.info(f"Getting Page {len(pageList)} schedule, [isnew] = {isnew} from PID{self.PID}")
             for event in pageList:
                 event["isnew"] = isnew
+                num += 1
                 yield event
+        logger.info(f"Successfully get {num} schedule(s) from PID{self.PID}")

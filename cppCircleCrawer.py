@@ -34,9 +34,8 @@ class cppCircleCrawer:
         myUID = KVDatabase(config_path).get("UID")
         self.circleID = circleID
         self.scheduledEventsApi = f"https://www.allcpp.cn/allcpp/circle/mainEvent.do?circle_id={self.circleID}&startDate=2010-02-01"
-        self.circlePageUrl = f"https://www.allcpp.cn/c/{self.circleID}.do"
         self.circleInfoApi = f"https://www.allcpp.cn/api/circle/getcircledetail.do?circleid={self.circleID}&userid={myUID}"
-        response = self.main_request.get(self.circlePageUrl)
+        response = self.main_request.get(self.circleInfoApi)
         if response.status_code != 200:
             logger.error("circlePage request failed" + str(circleID))
             return
