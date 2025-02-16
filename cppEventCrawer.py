@@ -106,7 +106,12 @@ class cppEventCrawer:
                     logger.error("api request failed")
                     return []
 
-                data = json.loads(response.text)
+                try:
+                    data = json.loads(response.text)
+                except:
+                    logger.error("bad response" + str(self.PID))
+                    return []
+                
                 if not data["isSuccess"]:
                     logger.error("bad response")
                     return []
@@ -166,7 +171,12 @@ class cppEventCrawer:
                         logger.error("api request failed")
                     return []
 
-                data = json.loads(response.text)
+                try:
+                    data = json.loads(response.text)
+                except:
+                    logger.error("bad response" + str(self.PID))
+                    return []
+                
                 if not data["isSuccess"]:
                     with self.lock:
                         logger.error("bad response")

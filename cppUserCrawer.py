@@ -82,7 +82,11 @@ class cppUserCrawer:
             if response.status_code != 200:
                 logger.error(f"[{worker_name}] productsApi request failed" + str(self.UID))
                 return[]
-            data = json.loads(response.text)
+            try:
+                data = json.loads(response.text)
+            except:
+                logger.error("bad response" + str(self.PID))
+                return []
             if not data["isSuccess"]:
                 logger.error(f"[{worker_name}] bad response" + str(self.UID))
                 return[]
@@ -140,7 +144,11 @@ class cppUserCrawer:
                 if response.status_code != 200:
                     logger.error("scheduleApi request failed" + str(self.UID))
                     return
-                data = json.loads(response.text)
+                try:
+                    data = json.loads(response.text)
+                except:
+                    logger.error("bad response" + str(self.PID))
+                    return
                 if not data["isSuccess"]:
                     logger.error("bad response" + str(self.UID))
                     return

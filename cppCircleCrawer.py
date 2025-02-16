@@ -94,7 +94,11 @@ class cppCircleCrawer:
             if response.status_code != 200:
                 logger.error("api request failed")
                 sys.exit(1)
-            data = json.loads(response.text)
+            try:
+                data = json.loads(response.text)
+            except:
+                logger.error("bad response" + str(self.PID))
+                return []
             if not data["isSuccess"]:
                 logger.error("bad response")
                 sys.exit(1)
