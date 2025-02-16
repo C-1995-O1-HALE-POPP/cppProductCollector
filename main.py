@@ -69,6 +69,15 @@ def main():
     if args.relogin:
         global_cookieManager = main_request.cookieManager
         global_cookieManager.clear_cookies()
+    
+    if args.maxRetry <= 0:
+        logger.warning("maxRetry <= 0, no retry attempts. Good luck!")
+    if args.maxRatePerMinute <= 0:
+        logger.warning("maxRatePerMinute <= 0, infinity attempts. Good luck!")
+    if args.retryInterval <= 0:
+        logger.warning("retryInterval <= 0, no waiting. Good luck!")
+    if args.maxWaitTime <= 0:
+        logger.warning("maxWaitTime <= 0, no timeout. Good luck!")
 
     configDB.insert("maxRetry", args.maxRetry)
     configDB.insert("maxRatePerMinute", args.maxRatePerMinute)
@@ -90,9 +99,9 @@ def main():
     # get event products and event circles
     eventCrawer = cppEventCrawer(URL = args.page)
     eventId = eventCrawer.getEventID()
-    productEventDataHandler = cppDataHandler(csvPath=f"{eventId}_Event_products.csv")
+    productEventDataHandler = cppDataHandler(csvPath=f"{eventId}_Event_products.csv", force=args.force)
     productEventDataHandler.writeCSV(eventCrawer.getProducts())
-    circleEventDataHandler = cppDataHandler(csvPath=f"{eventId}_Event_circles.csv")
+    circleEventDataHandler = cppDataHandler(csvPath=f"{eventId}_Event_circles.csv", force=args.force)
     circleEventDataHandler.writeCSV(eventCrawer.getCircles())
 
     dataProducts = pd.read_csv(f"{eventId}_Event_products.csv")
@@ -103,16 +112,16 @@ def main():
     allproducts = dataProducts["doujinshiId"].unique()
 
     # dataHandlers
-    circleDataHandler = cppDataHandler(csvPath=f"{eventId}_Circles_Info.csv")
-    circleProductsDataHandler = cppDataHandler(csvPath=f"{eventId}_Circle_ALL_Products.csv")
-    circleScheduleDataHandler = cppDataHandler(csvPath=f"{eventId}_Circle_Schedule.csv")
+    circleDataHandler = cppDataHandler(csvPath=f"{eventId}_Circles_Info.csv", force=args.force)
+    circleProductsDataHandler = cppDataHandler(csvPath=f"{eventId}_Circle_ALL_Products.csv", force=args.force)
+    circleScheduleDataHandler = cppDataHandler(csvPath=f"{eventId}_Circle_Schedule.csv", force=args.force)
 
-    productDataHandler = cppDataHandler(csvPath=f"{eventId}_Products_Info.csv")
-    productScheduleDataHandler = cppDataHandler(csvPath=f"{eventId}_Product_Schedule.csv")
+    productDataHandler = cppDataHandler(csvPath=f"{eventId}_Products_Info.csv", force=args.force)
+    productScheduleDataHandler = cppDataHandler(csvPath=f"{eventId}_Product_Schedule.csv", force=args.force)
 
-    userDataHandler = cppDataHandler(csvPath=f"{eventId}_User_Info.csv")
-    userScheduleDataHandler = cppDataHandler(csvPath=f"{eventId}_user_Schedule.csv")
-    userProduceDataHandler = cppDataHandler(csvPath=f"{eventId}_user_ALL_Products.csv")
+    userDataHandler = cppDataHandler(csvPath=f"{eventId}_User_Info.csv", force=args.force)
+    userScheduleDataHandler = cppDataHandler(csvPath=f"{eventId}_user_Schedule.csv", force=args.force)
+    userProduceDataHandler = cppDataHandler(csvPath=f"{eventId}_user_ALL_Products.csv", force=args.force)
 
     # get all UID from circles
     user_ids = []

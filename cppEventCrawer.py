@@ -93,7 +93,7 @@ class cppEventCrawer:
 
             while fetchFlag and not emptyFlag:
                 circle_api = "https://www.allcpp.cn/api/circle/getcirclelist.do"
-                request_data = {'eventid': 1200,
+                request_data = {'eventid': data_id,
                         'search': '',
                         'orderbyid': 0,
                         'typeid': '',
