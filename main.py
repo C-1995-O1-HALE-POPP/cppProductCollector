@@ -20,6 +20,7 @@ import json
 import time
 import re
 from tqdm import tqdm 
+from threading import Lock
 
 def main():
     # get args
@@ -104,20 +105,22 @@ def main():
     circleEventDataHandler = cppDataHandler(csvPath=f"{eventId}_Event_circles.csv", force=args.force)
     circleEventDataHandler.writeCSV(eventCrawer.getCircles())
 
+
     dataProducts = pd.read_csv(f"{eventId}_Event_products.csv")
     dataCircle = pd.read_csv(f"{eventId}_Event_circles.csv")
 
     # get circles and products entries from the Event
     allcircles = dataCircle["id"].unique()
     allproducts = dataProducts["doujinshiId"].unique()
+    logger.info(f"Total {len(allcircles)} circles and {len(allproducts)} products in the event")
 
     # dataHandlers
     circleDataHandler = cppDataHandler(csvPath=f"{eventId}_Circles_Info.csv", force=args.force)
     circleProductsDataHandler = cppDataHandler(csvPath=f"{eventId}_Circle_ALL_Products.csv", force=args.force)
     circleScheduleDataHandler = cppDataHandler(csvPath=f"{eventId}_Circle_Schedule.csv", force=args.force)
 
-    productDataHandler = cppDataHandler(csvPath=f"{eventId}_Products_Info.csv", force=args.force)
-    productScheduleDataHandler = cppDataHandler(csvPath=f"{eventId}_Product_Schedule.csv", force=args.force)
+    productDataHandler = cppDataHandler(csvPath=f"{eventId}_Products_Info1.csv", force=args.force)
+    productScheduleDataHandler = cppDataHandler(csvPath=f"{eventId}_Product_Schedule1.csv", force=args.force)
 
     userDataHandler = cppDataHandler(csvPath=f"{eventId}_User_Info.csv", force=args.force)
     userScheduleDataHandler = cppDataHandler(csvPath=f"{eventId}_user_Schedule.csv", force=args.force)
@@ -128,6 +131,10 @@ def main():
     for entry in tqdm(dataCircle["circleMemberList"]):
         user_ids.extend(re.findall(r"'userId': (\d+)", entry))
     user_ids = list(set(map(int, user_ids)))  # unique
+    logger.info(f"Total {len(user_ids)} users in the event")
+
+    prod = pd.read_csv(f"{eventId}_user_ALL_Products.csv")
+    print(len(prod["id"].unique()))
 
 
     def process_circle(circle):
@@ -135,33 +142,50 @@ def main():
         circleDataHandler.writeCSV(circleCrawer.getInfo())
         circleProductsDataHandler.writeCSV(circleCrawer.getProducts())
         circleScheduleDataHandler.writeCSV(circleCrawer.getSchedule())
-
+    lock = Lock()
+    num = 0
+    length = len(allproducts)
 
     def process_product(product):
+        nonlocal num, length
+        with lock:
+            num+=1
+            logger.info(f"################# Processing product {product}, {num}/{length} #################")
         productCrawer = cppProductCrawer(product)
-        productDataHandler.writeCSV(productCrawer.getInfo())
-        productScheduleDataHandler.writeCSV(productCrawer.getSchedule())
+        with lock:
+            productDataHandler.writeCSV(productCrawer.getInfo())
+            productScheduleDataHandler.writeCSV(productCrawer.getSchedule())
 
 
     def process_user(uid):
         userCrawer = cppUserCrawer(UID=uid)
+
         userDataHandler.writeCSV(userCrawer.getInfo())
         userScheduleDataHandler.writeCSV(userCrawer.getSchedule())
         userProduceDataHandler.writeCSV(userCrawer.getProducts())
 
 
     # thread pool for execution
-    def execute_parallel_tasks(task_func, task_list, max_workers=10):
+    def execute_parallel_tasks(task_func, task_list, max_workers=100):
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {executor.submit(task_func, task): task for task in task_list}
             for future in tqdm(concurrent.futures.as_completed(futures), total=len(futures)):
-                future.result() 
+                try:
+                    future.result()
+                except Exception as e:
+                    logger.error(f"Error: {e}")
+                    logger.error(f"Task {futures[future]} failed")
+                    continue
 
+    # # go multitasking!
+    # # execute_parallel_tasks(process_circle, allcircles, max_workers=10)
+    # # execute_parallel_tasks(process_product, allproducts, max_workers=10)
+    # # execute_parallel_tasks(process_user, user_ids, max_workers=10)
 
-    # go multitasking!
-    execute_parallel_tasks(process_circle, allcircles, max_workers=10)
-    execute_parallel_tasks(process_product, allproducts, max_workers=10)
-    execute_parallel_tasks(process_user, user_ids, max_workers=10)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        future1 = executor.submit(execute_parallel_tasks, process_user, user_ids, max_workers=20)
+        # future2 = executor.submit(execute_parallel_tasks, process_user, user_ids, max_workers=10)
+        concurrent.futures.wait([future1])
 
 
 if __name__ == "__main__":
