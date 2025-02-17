@@ -4,7 +4,7 @@ import sqlite3
 import os
 import sys
 from loguru import logger
-
+import threading
 class cppDataHandler:
     def __init__(self, csvPath="default.csv", dbPath="default.db", force=False):
         if os.path.exists(csvPath):
@@ -16,6 +16,7 @@ class cppDataHandler:
         self.csvPath = csvPath
         self.dbPath = dbPath
         self.csvFirstWrite = True
+        self.lock = threading.Lock()
         return
 
     def writeCSV(self, data):
@@ -35,7 +36,10 @@ class cppDataHandler:
         df.to_csv(self.csvPath, index=False,
                   mode=mode, encoding='utf-8',
                   header=self.csvFirstWrite)
-        self.csvFirstWrite = False
+        if self.csvFirstWrite:
+            with self.lock:
+                logger.info(f"CSV file {self.csvPath} created")
+                self.csvFirstWrite = False
         return
     
     def writeDB(self, data):

@@ -8,7 +8,7 @@ import json
 import concurrent.futures
 import threading
 class cppUserCrawer:
-    def __init__(self, UID = -1, URL = "", maxWorker = 10):
+    def __init__(self, UID = -1, URL = ""):
         # read cookie config
         config_path = os.path.join(os.path.dirname(os.path.realpath(sys.executable)), "config.json")
         configDB = KVDatabase(config_path)
@@ -30,6 +30,8 @@ class cppUserCrawer:
             if UID == None:
                 logger.error("Bad URL")
                 exit(1)
+
+
         # get APIs, fortunately, we can get all information with them
         self.UID = UID
         self.infoApi = f"https://www.allcpp.cn/allcpp/loginregister/getUser/{self.UID}.do?"
@@ -42,10 +44,9 @@ class cppUserCrawer:
             logger.error("bad response" + str(self.UID))
             return
         self.data = data["result"]
-
+        self.invalid = (self.data["userMain"]["nickname"] == "")
         logger.info("Successfully load UID" + str(self.UID))
         
-        self.maxWorker = maxWorker
         self.lock = threading.Lock()
         return
 
@@ -56,22 +57,24 @@ class cppUserCrawer:
     
     def getInfo(self):
         # get user's information, compress paticipated circleIds to circleList
+        if self.invalid:
+            logger.error("Invalid UID")
+            return {}
         info = self.data["userMain"].copy()
         info["circleList"] = [circle["circleId"] for circle in self.data["circleList"]]
         return info
     
     def getProducts(self, limitation = -1):
         # get user's products
+        if self.invalid:
+            logger.error("Invalid UID")
+            return []
         num = 0
         pageIndex = 1
         fetchFlag = True
         isEmptyPage = False
 
-        def fetchPage(pageIndex):
-            nonlocal fetchFlag
-            if not fetchFlag:
-                return []
-            worker_name = threading.current_thread().name
+        while fetchFlag and not isEmptyPage:
             productsApi = "".join(["https://www.allcpp.cn/allcpp/doujinshi/getAuthorDoujinshiList.do",
                             "?pageindex=",
                             str(pageIndex),
@@ -80,7 +83,7 @@ class cppUserCrawer:
                             "&searchstring=&canupdate=-1&havecreater=1"])
             response = self.main_request.get(productsApi)
             if response.status_code != 200:
-                logger.error(f"[{worker_name}] productsApi request failed" + str(self.UID))
+                logger.error(f"productsApi request failed" + str(self.UID))
                 return[]
             try:
                 data = json.loads(response.text)
@@ -88,44 +91,28 @@ class cppUserCrawer:
                 logger.error("bad response" + str(self.PID))
                 return []
             if not data["isSuccess"]:
-                logger.error(f"[{worker_name}] bad response" + str(self.UID))
+                logger.error(f"bad response" + str(self.UID))
                 return[]
             pageList = data["result"]["list"]
-            if pageList == [] or pageList == None:
-                return []
-            logger.info(f"[{worker_name}] Getting Page {pageIndex}, {len(pageList)} products from UID{self.UID}")
+            isEmptyPage = len(pageList) == 0
+            logger.info(f"Getting Page {pageIndex}, {len(pageList)} products from UID{self.UID}")
             for product in pageList:
                 product["userId"] = self.UID
-            return pageList
+                if limitation != -1 and num >= limitation:
+                    fetchFlag = False
+                    break
+                yield product
+                num += 1
+            pageIndex += 1
         
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self.maxWorker) as executor:
-            futureToPageIndex = {executor.submit(fetchPage, pageIndex): pageIndex}
-            while fetchFlag and not isEmptyPage and futureToPageIndex:
-                for future in concurrent.futures.as_completed(futureToPageIndex):
-                    pageIndex = futureToPageIndex.pop(future)
-                    try:
-                        product = future.result()
-                        if product == [] or product == None:
-                            isEmptyPage = True
-                            break
-                        for i in product:
-                            yield i
-                            num += 1
-                            if limitation != -1 and num >= limitation:
-                                fetchFlag = False
-                                break
-                    except Exception as e:
-                        with self.lock:
-                            logger.error(f"Exception: {e}")
-                        continue
-                    if fetchFlag and not isEmptyPage:
-                        pageIndex += 1
-                        futureToPageIndex[executor.submit(fetchPage, pageIndex)] = pageIndex
 
             
     
     def getSchedule(self):
         # get user's schedule
+        if self.invalid:
+            logger.error("Invalid UID")
+            return
         num = 0
         fetchFlag = True
         for isnew, iswannago in [(1, 1), (0, 1), (1, 0), (0, 0)]:
