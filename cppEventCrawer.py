@@ -151,7 +151,7 @@ class cppEventCrawer:
             if not fetchFlag:
                 break
             EmptyFlag = False
-            pageIndex = 1000
+            pageIndex = 1
 
             while fetchFlag and not EmptyFlag:
                 dojin_api = "https://www.allcpp.cn/allcpp/event/getDoujinshiList.do"
