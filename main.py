@@ -21,7 +21,7 @@ import time
 import re
 from tqdm import tqdm 
 from threading import Lock
-
+from datetime import datetime
 def main():
     # get args
     parser = argparse.ArgumentParser()
@@ -51,7 +51,19 @@ def main():
                         help="max time to wait for a request. <= 0 for no timeout")
 
     args = parser.parse_args()
+    logger.remove()
+    logger.add(sys.stderr, level="INFO")
+    # 日志文件目录
+    log_dir = "logs"
+    os.makedirs(log_dir, exist_ok=True)
 
+    # 日志文件名（带时间戳 + eventID 或自定义）
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = os.path.join(log_dir, f"event_{timestamp}.log")
+
+    # 日志配置：输出到文件
+    logger.add(log_file, rotation="50 MB", retention="10 days", compression="zip")
+    logger.info(f"日志文件已启用: {log_file}")
     # get cookie config
     config_path = os.path.join(os.path.dirname(os.path.realpath(sys.executable)), "config.json")
     configDB = KVDatabase(config_path)
@@ -96,16 +108,20 @@ def main():
         exit(1)
     KVDatabase(config_path).insert("UID", data["result"]["joinCircleList"][0]["userId"])
     logger.info("Successfully login, your UID is " + str(data["result"]["joinCircleList"][0]["userId"]))
-
+    
     # get event products and event circles
     eventCrawer = cppEventCrawer(URL = args.page)
+    print(eventCrawer.data_ids)
+
     eventId = eventCrawer.getEventID()
-    productEventDataHandler = cppDataHandler(csvPath=f"{eventId}_Event_products.csv", force=args.force)
-    productEventDataHandler.writeCSV(eventCrawer.getProducts())
-    circleEventDataHandler = cppDataHandler(csvPath=f"{eventId}_Event_circles.csv", force=args.force)
-    circleEventDataHandler.writeCSV(eventCrawer.getCircles())
-
-
+    productEventDataHandler = cppDataHandler(path=f"{eventId}_Event_products", db_id=f'{eventId}',force=args.force)
+    circleEventDataHandler = cppDataHandler(path=f"{eventId}_Event_circles", db_id=f'{eventId}',force=args.force)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        future1 = executor.submit(circleEventDataHandler.writeAll, eventCrawer.getCircles())
+        future2 = executor.submit(productEventDataHandler.writeAll, eventCrawer.getProducts())
+        concurrent.futures.wait([future2, future1])
+    logger.warning(f"Event {eventId} has been loaded")
+    exit(0)
     dataProducts = pd.read_csv(f"{eventId}_Event_products.csv")
     dataCircle = pd.read_csv(f"{eventId}_Event_circles.csv")
 
@@ -115,16 +131,16 @@ def main():
     logger.info(f"Total {len(allcircles)} circles and {len(allproducts)} products in the event")
 
     # dataHandlers
-    circleDataHandler = cppDataHandler(csvPath=f"{eventId}_Circles_Info.csv", force=args.force)
-    circleProductsDataHandler = cppDataHandler(csvPath=f"{eventId}_Circle_ALL_Products.csv", force=args.force)
-    circleScheduleDataHandler = cppDataHandler(csvPath=f"{eventId}_Circle_Schedule.csv", force=args.force)
+    circleDataHandler = cppDataHandler(path=f"{eventId}_Circles_Info",db_id=f'{eventId}', force=args.force)
+    circleProductsDataHandler = cppDataHandler(path=f"{eventId}_Circle_ALL_Products",db_id=f'{eventId}', force=args.force)
+    circleScheduleDataHandler = cppDataHandler(path=f"{eventId}_Circle_Schedule",db_id=f'{eventId}', force=args.force)
 
-    productDataHandler = cppDataHandler(csvPath=f"{eventId}_Products_Info1.csv", force=args.force)
-    productScheduleDataHandler = cppDataHandler(csvPath=f"{eventId}_Product_Schedule1.csv", force=args.force)
+    productDataHandler = cppDataHandler(path=f"{eventId}_Products_Info1",db_id=f'{eventId}', force=args.force)
+    productScheduleDataHandler = cppDataHandler(path=f"{eventId}_Product_Schedule1",db_id=f'{eventId}', force=args.force)
 
-    userDataHandler = cppDataHandler(csvPath=f"{eventId}_User_Info.csv", force=args.force)
-    userScheduleDataHandler = cppDataHandler(csvPath=f"{eventId}_user_Schedule.csv", force=args.force)
-    userProduceDataHandler = cppDataHandler(csvPath=f"{eventId}_user_ALL_Products.csv", force=args.force)
+    userDataHandler = cppDataHandler(path=f"{eventId}_User_Info",db_id=f'{eventId}', force=args.force)
+    userScheduleDataHandler = cppDataHandler(path=f"{eventId}_user_Schedule",db_id=f'{eventId}', force=args.force)
+    userProduceDataHandler = cppDataHandler(path=f"{eventId}_user_ALL_Products",db_id=f'{eventId}', force=args.force)
 
     # get all UID from circles
     user_ids = []
@@ -133,36 +149,29 @@ def main():
     user_ids = list(set(map(int, user_ids)))  # unique
     logger.info(f"Total {len(user_ids)} users in the event")
 
-    prod = pd.read_csv(f"{eventId}_user_ALL_Products.csv")
-    print(len(prod["id"].unique()))
-
-
+    lock1, lock2, lock3 = Lock(), Lock(), Lock()
     def process_circle(circle):
         circleCrawer = cppCircleCrawer(circle)
-        circleDataHandler.writeCSV(circleCrawer.getInfo())
-        circleProductsDataHandler.writeCSV(circleCrawer.getProducts())
-        circleScheduleDataHandler.writeCSV(circleCrawer.getSchedule())
-    lock = Lock()
+        with lock1:
+            circleDataHandler.writeAll(circleCrawer.getInfo())
+            circleProductsDataHandler.writeAll(circleCrawer.getProducts())
+            circleScheduleDataHandler.writeAll(circleCrawer.getSchedule())
     num = 0
     length = len(allproducts)
 
     def process_product(product):
-        nonlocal num, length
-        with lock:
-            num+=1
-            logger.info(f"################# Processing product {product}, {num}/{length} #################")
         productCrawer = cppProductCrawer(product)
-        with lock:
-            productDataHandler.writeCSV(productCrawer.getInfo())
-            productScheduleDataHandler.writeCSV(productCrawer.getSchedule())
+        with lock2:
+            productDataHandler.writeAll(productCrawer.getInfo())
+            productScheduleDataHandler.writeAll(productCrawer.getSchedule())
 
 
     def process_user(uid):
         userCrawer = cppUserCrawer(UID=uid)
-
-        userDataHandler.writeCSV(userCrawer.getInfo())
-        userScheduleDataHandler.writeCSV(userCrawer.getSchedule())
-        userProduceDataHandler.writeCSV(userCrawer.getProducts())
+        with lock3:
+            userDataHandler.writeAll(userCrawer.getInfo())
+            userScheduleDataHandler.writeAll(userCrawer.getSchedule())
+            userProduceDataHandler.writeAll(userCrawer.getProducts())
 
 
     # thread pool for execution
@@ -170,22 +179,18 @@ def main():
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {executor.submit(task_func, task): task for task in task_list}
             for future in tqdm(concurrent.futures.as_completed(futures), total=len(futures)):
-                try:
+                # try:
                     future.result()
-                except Exception as e:
-                    logger.error(f"Error: {e}")
-                    logger.error(f"Task {futures[future]} failed")
-                    continue
-
-    # # go multitasking!
-    # # execute_parallel_tasks(process_circle, allcircles, max_workers=10)
-    # # execute_parallel_tasks(process_product, allproducts, max_workers=10)
-    # # execute_parallel_tasks(process_user, user_ids, max_workers=10)
+                # except Exception as e:
+                #     logger.error(f"Error: {e}")
+                #     logger.error(f"Task {futures[future]} failed")
+                #     continue
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         future1 = executor.submit(execute_parallel_tasks, process_user, user_ids, max_workers=20)
-        # future2 = executor.submit(execute_parallel_tasks, process_user, user_ids, max_workers=10)
-        concurrent.futures.wait([future1])
+        future2 = executor.submit(execute_parallel_tasks, process_product, allproducts, max_workers=10)
+        future3 = executor.submit(execute_parallel_tasks, process_circle, allcircles, max_workers=10)
+        concurrent.futures.wait([future1, future2, future3])    
 
 
 if __name__ == "__main__":

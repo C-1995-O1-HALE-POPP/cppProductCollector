@@ -5,10 +5,11 @@ import os
 import sys
 import re
 import json
-
+from bs4 import BeautifulSoup
 import threading
 from collections import deque
 import concurrent.futures 
+import time
 class cppEventCrawer:
     def __init__(self, eventID = -1, URL = "", maxWorker = 10):
         # read cookie config
@@ -62,11 +63,16 @@ class cppEventCrawer:
                
     def _getDataIDs(self):
         # get dataIDs for products
-        if self.data == None:
-            logger.error("No data available")
-            return
-        return [data["id"] for data in self.data]
+        pageUrl = f'https://www.allcpp.cn/allcpp/event/event.do?event={self.eventID}'
+        response = self.main_request.get(pageUrl)
+        soup = BeautifulSoup(response.text, 'html.parser')
 
+        spans = soup.find_all('span', attrs={'data-id': True})
+        data_ids = [span['data-id'] for span in spans]
+        if len(data_ids) == 0:
+            logger.error("No data_ids found")
+        return data_ids
+    
     def getEventID(self):
         # return eventID
         return self.eventID
@@ -85,6 +91,7 @@ class cppEventCrawer:
             return
         num = 0
         fetchFlag = True
+
         for data_id in self.data_ids:
             if not fetchFlag:
                 break
@@ -104,22 +111,21 @@ class cppEventCrawer:
                 response = self.main_request.post(url=circle_api, data=request_data, headers=headers)
                 if response.status_code != 200:
                     logger.error("api request failed")
-                    return []
-
+                    break
                 try:
                     data = json.loads(response.text)
                 except:
                     logger.error("bad response" + str(self.PID))
-                    return []
+                    break
                 
                 if not data["isSuccess"]:
                     logger.error("bad response")
-                    return []
+                    break
 
                 # get list on current page
                 pageList = data["result"]
                 emptyFlag = len(pageList) == 0
-                logger.info(f"Getting Page {pageIndex}, {len(pageList)} circles from EventID{data_id}")
+                logger.debug(f"Getting Page {pageIndex}, {len(pageList)} circles from EventID{data_id}")
                 for circle in pageList:
                     circle["eventId"] = self.eventID
                     circle["dataId"] = data_id
@@ -129,8 +135,8 @@ class cppEventCrawer:
                         fetchFlag = False
                         break
                 pageIndex += 1
-        logger.info(f"Finished getting {num} circles from EventID{data_id}")
-                
+            logger.info(f"Finished getting {num} circles from EventID{data_id}")
+        return 
 
 
     
@@ -145,13 +151,9 @@ class cppEventCrawer:
             if not fetchFlag:
                 break
             EmptyFlag = False
-            pageIndex = 1
+            pageIndex = 1000
 
-            # for each thread, fetch a page
-            def fetchPage(pageIndex):
-                nonlocal fetchFlag, num
-                if not fetchFlag and not EmptyFlag:
-                    return []
+            while fetchFlag and not EmptyFlag:
                 dojin_api = "https://www.allcpp.cn/allcpp/event/getDoujinshiList.do"
                 data = {
                     "eventid": data_id,
@@ -169,53 +171,32 @@ class cppEventCrawer:
                 if response.status_code != 200:
                     with self.lock:
                         logger.error("api request failed")
-                    return []
+                    break
 
                 try:
                     data = json.loads(response.text)
                 except:
                     logger.error("bad response" + str(self.PID))
-                    return []
+                    break
                 
                 if not data["isSuccess"]:
                     with self.lock:
                         logger.error("bad response")
-                    return []
+                    break
 
                 # get list on current page
                 pageList = data["result"]["list"]
-                with self.lock:
-                    logger.info(f"Getting Page {pageIndex}, {len(pageList)} products from EventID{data_id}")
+                EmptyFlag = len(pageList) == 0
+                logger.debug(f"Getting Page {pageIndex}, {len(pageList)} products from EventID{data_id}")
                 for product in pageList:
                     product["eventId"] = self.eventID
                     product["dataId"] = data_id
-                return pageList
-            
-            # fetch pages with ThreadPoolExecutor
-            with concurrent.futures.ThreadPoolExecutor(max_workers=self.maxWorker) as executor:
-                futureToPageIndex = {executor.submit(fetchPage, pageIndex): pageIndex}
-                while futureToPageIndex and fetchFlag and not EmptyFlag:
-                    for future in concurrent.futures.as_completed(futureToPageIndex):
-                        pageIndex = futureToPageIndex.pop(future)
-                        try:
-                            product = future.result()
-                            if product == [] or product == None:
-                                EmptyFlag = True
-                                break
-                            for i in product:
-                                yield i
-                                num += 1
-                                if limitation != -1 and num >= limitation:
-                                    fetchFlag = False
-                                    break
-                        except Exception as e:
-                            with self.lock:
-                                logger.error(f"Exception: {e}")
-                            continue
-                        if fetchFlag and not EmptyFlag:
-                            pageIndex += 1
-                            futureToPageIndex[executor.submit(fetchPage, pageIndex)] = pageIndex
-        logger.info(f"Finished getting {num} products from EventID{data_id}")
+                    num += 1
+                    if limitation != -1 and num >= limitation:
+                        fetchFlag = False
+                        break
+                pageIndex += 1
+            logger.info(f"Finished getting {num} products from EventID{data_id}")
 
     def extractEventID(self, URL):
         # extract eventID from URL

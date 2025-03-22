@@ -95,7 +95,7 @@ class cppUserCrawer:
                 return[]
             pageList = data["result"]["list"]
             isEmptyPage = len(pageList) == 0
-            logger.info(f"Getting Page {pageIndex}, {len(pageList)} products from UID{self.UID}")
+            logger.debug(f"Getting Page {pageIndex}, {len(pageList)} products from UID{self.UID}")
             for product in pageList:
                 product["userId"] = self.UID
                 if limitation != -1 and num >= limitation:
@@ -141,7 +141,7 @@ class cppUserCrawer:
                     return
                 pageList = data["result"]["list"]
                 isEmptyPage = len(pageList) == 0
-                logger.info(f"Getting Page {pageIndex}, {len(pageList)} schedule [isnew, iswannago] = {[isnew, iswannago]} from UID{self.UID}")
+                logger.debug(f"Getting Page {pageIndex}, {len(pageList)} schedule [isnew, iswannago] = {[isnew, iswannago]} from UID{self.UID}")
                 for event in pageList:
                     yield {"uid":self.UID, 
                            "isNew":isnew, 

@@ -98,13 +98,13 @@ class cppCircleCrawer:
                 data = json.loads(response.text)
             except:
                 logger.error("bad response" + str(self.PID))
-                return []
+                break
             if not data["isSuccess"]:
                 logger.error("bad response")
                 sys.exit(1)
             pageList = data["result"]["rows"]
             isEmptyPage = (len(pageList) == 0)
-            logger.info(f"Getting Page {pageIndex}, {len(pageList)} products from CircleID{self.circleID}")
+            logger.debug(f"Getting Page {pageIndex}, {len(pageList)} products from CircleID{self.circleID}")
             for product in pageList:
                 product["circleId"] = self.circleID
                 if limitation != -1 and num >= limitation:

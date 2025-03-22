@@ -46,6 +46,9 @@ async def translate_dataset(input_file: str, output_file = '', fields_to_transla
          open(output_file, 'w', encoding='utf-8', newline='') as outfile:
         
         reader = csv.DictReader(infile)
+        if not fields_to_translate:
+            fields_to_translate = reader.fieldnames
+
         for field in fields_to_translate:
             if field not in reader.fieldnames:
                 logger.error(f"Field {field} not found in input file")
@@ -63,7 +66,7 @@ def main():
     parser.add_argument('input_file', type=str, help='Input CSV file to translate')
     parser.add_argument('--output_file', type=str, default='', help='Output CSV file to write translated data')
     parser.add_argument('--threshold', type=float, default=0.2, help='Threshold for determining if a text contains Chinese characters')
-    parser.add_argument('--fields', type=str, nargs='+', help='Fields to translate')
+    parser.add_argument('--fields', type=str, nargs='+', default=[], help='Fields to translate')
     args = parser.parse_args()
     fields = []
     try:

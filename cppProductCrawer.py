@@ -74,7 +74,7 @@ class cppProductCrawer:
                 logger.error("bad response" + str(self.PID))
                 return
             pageList = data["result"]
-            logger.info(f"Getting Page {len(pageList)} schedule, [isnew] = {isnew} from PID{self.PID}")
+            logger.debug(f"Getting Page {len(pageList)} schedule, [isnew] = {isnew} from PID{self.PID}")
             for event in pageList:
                 event["isnew"] = isnew
                 num += 1
