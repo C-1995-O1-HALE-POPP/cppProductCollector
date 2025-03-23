@@ -115,13 +115,13 @@ def main():
 
     eventId = eventCrawer.getEventID()
     productEventDataHandler = cppDataHandler(path=f"{eventId}_Event_products", db_id=f'{eventId}',force=args.force)
-    circleEventDataHandler = cppDataHandler(path=f"{eventId}_Event_circles", db_id=f'{eventId}',force=args.force)
+    #circleEventDataHandler = cppDataHandler(path=f"{eventId}_Event_circles", db_id=f'{eventId}',force=args.force)
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        future1 = executor.submit(circleEventDataHandler.writeAll, eventCrawer.getCircles())
+        #future1 = executor.submit(circleEventDataHandler.writeAll, eventCrawer.getCircles())
         future2 = executor.submit(productEventDataHandler.writeAll, eventCrawer.getProducts())
-        concurrent.futures.wait([future2, future1])
+        concurrent.futures.wait([future2])
     logger.warning(f"Event {eventId} has been loaded")
-    exit(0)
+
     dataProducts = pd.read_csv(f"{eventId}_Event_products.csv")
     dataCircle = pd.read_csv(f"{eventId}_Event_circles.csv")
 

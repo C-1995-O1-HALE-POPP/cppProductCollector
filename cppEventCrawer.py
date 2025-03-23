@@ -161,7 +161,7 @@ class cppEventCrawer:
                     "orderbyid": 3,
                     "typeid": "",
                     "pageindex": pageIndex,
-                    "pagesize": 1000,
+                    "pagesize": 50,
                     "sellstatus": "",
                     "sectionid": ""
                 }
@@ -191,6 +191,7 @@ class cppEventCrawer:
                 for product in pageList:
                     product["eventId"] = self.eventID
                     product["dataId"] = data_id
+                    yield product
                     num += 1
                     if limitation != -1 and num >= limitation:
                         fetchFlag = False
