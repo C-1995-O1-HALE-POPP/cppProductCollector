@@ -10,6 +10,7 @@ import threading
 from collections import deque
 import concurrent.futures 
 import time
+import copy
 class cppEventCrawer:
     def __init__(self, eventID = -1, URL = "", maxWorker = 10):
         # read cookie config

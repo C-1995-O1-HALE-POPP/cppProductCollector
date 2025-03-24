@@ -6,10 +6,10 @@ import sys
 from loguru import logger
 from tqdm import tqdm
 import threading
-import itertools
+
 
 class cppDataHandler:
-    def __init__(self, path="default", db_id='2231', force=False, commit_every=1000):
+    def __init__(self, path="default", db_id='2231', force=False, commit_every=1000, append_db=True):
         csvPath = path + ".csv"
         dbPath = db_id + ".db"
         if os.path.exists(csvPath):
@@ -24,20 +24,26 @@ class cppDataHandler:
         self.csvPath = csvPath
         self.dbPath = dbPath
         self.csvFirstWrite = True
-        self.lock = threading.Lock()
+        self.DBFirstWrite = True
+        self.lockCSV = threading.Lock()
+        self.lockDB = threading.Lock()
         self.commit_every = commit_every
+        self.append_db = append_db
         return
     
     def writeAll(self, data):
+        # convert data to list if not already
         if data is None:
             logger.warning("No data to write!")
             return
-        # 单条 dict → list 包一层
+        # signle dict -> list
         if isinstance(data, dict):
             data_list = [data]
-        # 其他 iterable（包括 list、生成器等）
+        # generator -> list
         elif hasattr(data, '__iter__') and not isinstance(data, (str,)):
             data_list = list(data)
+        elif isinstance(data, list):
+            data_list = data
         else:
             logger.warning(f"Unsupported data type: {type(data)}")
             return
@@ -50,17 +56,17 @@ class cppDataHandler:
         self.writeCSV(data_list)
     
     def writeCSV(self, data: list):
-        df = pd.DataFrame(data)
-        mode = 'w' if self.csvFirstWrite else 'a'
+        with self.lockCSV:
+            df = pd.DataFrame(data)
+            mode = 'w' if self.csvFirstWrite else 'a'
 
-        df.to_csv(self.csvPath, index=False,
-                mode=mode, encoding='utf-8',
-                header=self.csvFirstWrite)
-        if self.csvFirstWrite:
-            with self.lock:
+            df.to_csv(self.csvPath, index=False,
+                    mode=mode, encoding='utf-8',
+                    header=self.csvFirstWrite)
+            if self.csvFirstWrite:
                 logger.info(f"CSV file {self.csvPath} created")
                 self.csvFirstWrite = False
-        return
+            return
     
     def _convert_sql_value(self, val):
         if isinstance(val, (list, dict)):
@@ -73,60 +79,69 @@ class cppDataHandler:
         if not data:
             logger.warning("No data to write to DB.")
             return
-        
-        table_name = os.path.splitext(os.path.basename(self.csvPath))[0]
-        first_row = data[0]
-        columns = list(first_row.keys())
+        # sql is not thread-safe
+        with self.lockDB:
+            table_name = os.path.splitext(os.path.basename(self.csvPath))[0]
+            first_row = data[0]
+            columns = list(first_row.keys())
 
-        # infererence of data types
-        def infer_type(value):
-            if isinstance(value, int):
+            # infererence of data types
+            def infer_type(value):
+                if isinstance(value, int):
+                    return "INTEGER"
+                elif isinstance(value, float):
+                    return "REAL"
+                elif isinstance(value, bool):
+                    return "INTEGER"
+                elif value is None:
+                    return "TEXT"
+                else:
+                    return "TEXT"
+
+            # sample the data to infer column types
+            def infer_column_type(col_name, sample_data, sample_size=10):
+                
+                samples = [row.get(col_name) for row in sample_data[:sample_size] if col_name in row]
+                types = set(infer_type(val) for val in samples if val is not None)
+                # INTEGER < REAL < TEXT
+                if not types:
+                    return "TEXT"
+                if "TEXT" in types:
+                    return "TEXT"
+                if "REAL" in types:
+                    return "REAL"
                 return "INTEGER"
-            elif isinstance(value, float):
-                return "REAL"
-            elif isinstance(value, bool):
-                return "INTEGER"
-            elif value is None:
-                return "TEXT"
+
+            # get column definitions
+            col_defs = []
+            for col in columns:
+                col_type = infer_column_type(col, data)
+                col_defs.append(f'"{col}" {col_type}')
+            if self.append_db:
+                create_table_sql = [f'CREATE TABLE IF NOT EXISTS "{table_name}" ({", ".join(col_defs)});']
             else:
-                return "TEXT"
+                create_table_sql = [f'DROP TABLE IF EXISTS "{table_name}";', f'CREATE TABLE "{table_name}" ({", ".join(col_defs)});']
 
-        # ➡️ 逐列分析，采样前 N 条
-        def infer_column_type(col_name, sample_data, sample_size=10):
-            # 限制取样数据数量
-            samples = [row.get(col_name) for row in sample_data[:sample_size] if col_name in row]
-            types = set(infer_type(val) for val in samples if val is not None)
-            # 优先级 INTEGER < REAL < TEXT
-            if not types:
-                return "TEXT"
-            if "TEXT" in types:
-                return "TEXT"
-            if "REAL" in types:
-                return "REAL"
-            return "INTEGER"
-
-        # 获取最终表结构定义
-        col_defs = []
-        for col in columns:
-            col_type = infer_column_type(col, data)
-            col_defs.append(f'"{col}" {col_type}')
-        
-        create_table_sql = f'CREATE TABLE IF NOT EXISTS "{table_name}" ({", ".join(col_defs)});'
-
-        with self.lock:
+            
             conn = sqlite3.connect(self.dbPath)
             cursor = conn.cursor()
 
             try:
-                logger.debug(f"Creating table '{table_name}' with SQL: {create_table_sql}")
-                cursor.execute(create_table_sql)
+                # create table if not exists at first write
+                if self.DBFirstWrite:
+                    logger.debug(f"Creating table '{table_name}' with SQL: {create_table_sql}")
+                    for sql in create_table_sql:
+                        cursor.execute(sql)
+                    conn.commit()
+                    logger.info(f"DB file {self.dbPath} created")
+                    self.DBFirstWrite = False
 
                 placeholders = ', '.join(['?'] * len(columns))
                 column_names_quoted = ', '.join([f'"{col}"' for col in columns])
                 insert_sql = f'INSERT INTO "{table_name}" ({column_names_quoted}) VALUES ({placeholders})'
 
 
-                # 准备批量插入数据
+                # insert data in batches
                 rows_to_insert = []
                 for row in data:
                     row_values = [self._convert_sql_value(row.get(col, None)) for col in columns]

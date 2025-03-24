@@ -59,7 +59,7 @@ def main():
 
     # 日志文件名（带时间戳 + eventID 或自定义）
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = os.path.join(log_dir, f"event_{timestamp}.log")
+    log_file = os.path.join(log_dir, f"main_event_{timestamp}.log")
 
     # 日志配置：输出到文件
     logger.add(log_file, rotation="50 MB", retention="10 days", compression="zip")
